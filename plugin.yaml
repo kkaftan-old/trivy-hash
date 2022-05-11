@@ -1,0 +1,23 @@
+name: "hash-checker"
+repository: github.com/kkaftan/trivy-hash
+version: "0.7.0"
+usage: scan for checksum check
+description: |-
+  A Trivy plugin that scans the images and check if checksum equal
+  Usage: trivy kubectl TYPE[.VERSION][.GROUP] NAME
+platforms:
+  - selector: # optional
+      os: darwin
+      arch: amd64
+    uri: ./trivy-hash # where the execution file is (local file, http, git, etc.)
+    bin: ./trivy-hash # path to the execution file
+  - selector: # optional
+      os: linux
+      arch: amd64
+    uri: ./trivy-hash
+    bin: ./trivy-hash
+  - selector:
+      os: darwin
+      arch: arm64
+    uri: ./trivy-hash
+    bin: ./trivy-hash

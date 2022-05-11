@@ -1,0 +1,10 @@
+*.log
+*secret*
+md5-output*
+UNIQ*
+result*
+test.sh
+*.csv
+*BAK*
+wdo.py
+output_tmpl.py
