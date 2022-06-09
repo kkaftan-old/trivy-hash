@@ -108,7 +108,7 @@ compare_hashes () {
     rm -f ${RESULT} 
 }
 
-compare_hashes_malware () {
+compare_hashes_database () {
     red=$(tput setaf 1)
     blue=$(tput setaf 4)
     normal=$(tput sgr0)
@@ -299,7 +299,7 @@ if [ -z ${DB} ]; then
 	:	
 else
 	# "hier db -code einfügen"
-	compare_hashes_malware ${IMAGE_NAME}
+	compare_hashes_database ${IMAGE_NAME}
 fi
 
 # Wenn ${TEXTFILE} gesetzt, dann führe Liste-Suche fort
