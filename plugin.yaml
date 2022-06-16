@@ -5,13 +5,12 @@ usage: scan for checksum check
 description: |-
   A Trivy plugin that scans the images and check if checksum equal
   USAGE:
-	trivy hash-checker -i image_name [command options]
+    trivy hash-checker -i image_name [command options]
   OPTION: Atleast 1 required
-    -d	  Datenbank, in dem sich vertrauliche Dateien / Malwares befinden und deren Hashsumme;
+    -d  Datenbank, in dem sich vertrauliche Dateien / Malwares befinden und deren Hashsumme;
 	  Datenbank benötigt Spalte: Hashsummen
-    -t  	Analog zur Datenbank, kann eine Textfile mitgegeben werden;
-	  Struktur der Textfile muss wie folgs aussehen: Hashsummen, Pfad / Name, Klassifizierungsstufe
-
+    -t  Analog zur Datenbank, kann eine Textfile mitgegeben werden;
+      Struktur der Textfile muss wie folgs aussehen: Hashsummen, Pfad / Name, Klassifizierungsstufe
 platforms:
   - selector: # optional
       os: darwin
