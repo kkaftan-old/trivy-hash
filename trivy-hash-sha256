@@ -1,0 +1,313 @@
+#!/bin/bash
+
+# Skript zur Erkennung von Datei Hashsummen im Image
+# Liste oder DB kann mitgegeben werden
+# DB benötigt Spalte: "Hashsummen", # Liste muss wie folgt aufgebaut sein: Hashsummen, Pfad/Name, Klassifizierungsstufe ###########
+
+
+# Variablen anlegen
+###########
+# Hilfsvariablen für TAR (Image entpacken)
+# und Hilfsordner/Dateien
+TAR_PATH=/tmp/
+TAR_NAME=/tmp/image-fs.tar
+TAR_OUT=/tmp/imagetar/
+mkdir -p ${TAR_OUT}
+
+RESULT=result.txt
+
+# Ausgabe von Hashsummen
+NOW=$(date +"%Y-%m-%d_%H:%M:%S")
+HASH_AUSGABE="md5-output-${NOW}.txt"	#
+
+# output_tmpl
+OUT_TMPL=./output_tmpl.py
+
+###########################################################################
+########################################
+########################################
+######################################## 
+# usage
+#######################
+usage () {
+	cat << EOF >&2
+NAME:
+	trivy hash-checker - Überprüfung von vertrauchlich klassifizierten Dateien oder Malwares mit Hilfe von Hashsummen
+
+USAGE:
+	trivy hash-checker -i image_name [command options]
+
+OPTION: Atleast 1 required
+  -d	Datenbank, in dem sich vertrauliche Dateien / Malwares befinden und deren Hashsumme;
+	Datenbank benötigt Spalte: Hashsummen
+  -t	Analog zur Datenbank, kann eine Textfile mitgegeben werden;
+	Struktur der Textfile muss wie folgs aussehen: Hashsummen, Pfad / Name, Klassifizierungsstufe
+EOF
+	exit
+}
+
+# Kein Image angegeben
+######################
+missing_image () {
+	cat << EOF >&2
+Es wurde kein Image angegeben. 
+
+EOF
+	usage
+	exit
+}
+
+
+###########
+###########
+###########
+# Vorbereitung, aus Image ein .tar erzeugen und diese anschließend entpacken
+
+create_tar () {
+    docker create --name="tmp_$$" ${IMAGE_NAME} &>/dev/null
+    docker export tmp_$$ >${TAR_NAME}
+    docker rm tmp_$$ &>/dev/null 
+}
+
+untar () {
+    tar xf ${TAR_NAME} -C ${TAR_OUT}
+}
+
+
+###########
+###########
+###########
+# Erzeugt Hashsummen aus ${TAR_OUT} und speichert das Ergebnis in ${HASH_AUSGABE}
+create_hashes () {
+    find ${TAR_OUT} -type f -exec sha256sum {} \; > /tmp/hel1.txt
+    awk '{gsub("'"${TAR_OUT}"'", "");print}' /tmp/hel1.txt > ${HASH_AUSGABE}
+    rm -f /tmp/hel1.txt
+
+}
+
+
+
+###########
+###########
+###########
+# Vergleicht Hashsummen aus -d (Datenbank) oder -t (Textfile) mit den genierten Hashsummen aus dem Image
+compare_hashes () {
+    red=$(tput setaf 1)
+    blue=$(tput setaf 4)
+    normal=$(tput sgr0)
+    rm -f ${RESULT}
+    cat ${TEXTFILE} | cut -d ' ' -f1 | xargs -i grep {} ${HASH_AUSGABE} | sort -u -k2 > ${RESULT}
+    if [ -s ${RESULT} ]
+        then
+            printf "%s\n" "${red}Es wurden Übereinstimmungen im Image ${blue} ${IMAGE_NAME} ${red} gefunden: ${normal}"
+            # listet alle Dateien auf, die die identische Hashsumme besitzen
+            result_csv_txt #./output-tmpl.py    
+        else
+            printf "%s\n" "Es wurden keine Übereinstimmungen im Image ${blue} ${IMAGE_NAME} ${normal} gefunden."
+    fi
+    rm -f ${RESULT} 
+}
+
+compare_hashes_database () {
+    red=$(tput setaf 1)
+    blue=$(tput setaf 4)
+    normal=$(tput sgr0)
+	result_csv_db
+	rm -f ${RESULT}
+}
+
+
+###########
+###########
+###########
+# prepare output_tmpl.py für Textfile
+# ${OUT_TMPL}
+result_csv_txt () {
+    cat << EOF > ${OUT_TMPL}
+#!/bin/python3
+
+import csv
+import glob
+import os
+import pandas as pd
+import sqlite3
+
+TMP_RESULT="result1.csv"
+
+#https://stackoverflow.com/questions/39642082/convert-txt-to-csv-python-script
+#erzeugt csv aus md5sums_secrets
+#TODO md5sum_secrets als variable auslagern
+df1 = pd.read_csv("${TEXTFILE}", sep='\s+', header=None)
+df1.to_csv('result.csv', header=['hashes', 'path', 'classification'], index=None)
+df1 = pd.read_csv('result.csv')
+
+#https://stackoverflow.com/questions/39327032/how-to-get-the-latest-file-in-a-folder
+#gibt die letzte txt file aus die erstellt wurde: md5
+list_of_files = glob.glob('*.txt')
+latest_file = max(list_of_files, key=os.path.getctime)
+
+#erzeugt csv aus latest_file
+df2 = pd.read_csv(latest_file, sep='\s+', header=None, on_bad_lines='skip')
+df2 = df2.to_csv(TMP_RESULT, header=['hashes', 'path'], index=None)
+df2 = pd.read_csv(TMP_RESULT)  
+
+#https://stackoverflow.com/questions/17978133/python-pandas-merge-only-certain-columns
+# vergleich der csv dateien
+df3 = pd.DataFrame(data = {'hashes': list(set(df1['hashes']) & set(df2['hashes']))})
+df4 = df3.merge(df2[['hashes', 'path']]).merge(df1[['hashes', 'classification']])
+print(df4)
+EOF
+    chmod +x ${OUT_TMPL}
+    ${OUT_TMPL}
+
+}
+
+# prepare output_tmpl.py für DB
+result_csv_db () {
+    cat << EOF > ${OUT_TMPL}
+#!/bin/python3
+
+class bcolors:
+    HEADER = '\033[95m'
+    OKBLUE = '\033[94m'
+    OKCYAN = '\033[96m'
+    OKGREEN = '\033[92m'
+    WARNING = '\033[93m'
+    FAIL = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
+#####################################
+####################################
+
+import csv
+import glob
+import os
+import pandas as pd
+import sqlite3
+
+######################
+# Nimmt letzes Scan-Ergebnis und speichert in TMP_RESULT
+######################
+TMP_RESULT="result1.csv"
+
+#https://stackoverflow.com/questions/39327032/how-to-get-the-latest-file-in-a-folder
+#gibt die letzte txt file aus die erstellt wurde: md5
+list_of_files = glob.glob('*.txt')
+latest_file = max(list_of_files, key=os.path.getctime)
+
+#erzeugt csv aus latest_file
+df2 = pd.read_csv(latest_file, sep='\s+', header=None, on_bad_lines='skip')
+df2 = df2.to_csv(TMP_RESULT, header=['hashes', 'path'], index=None)
+df2 = pd.read_csv(TMP_RESULT)
+
+
+########################
+# DB FUNKTION HINZUFÜGEN
+########################
+#DB PATH
+#DB="/mnt/malware.db"
+
+#baut connection auf
+con = sqlite3.connect("$DB")
+df5 = pd.read_sql('SELECT * FROM Malware', con)
+
+## lese csv-file ein (nur column=hashes)
+data = pd.read_csv(TMP_RESULT, usecols=['hashes'])
+#speichert in array
+col_list= data['hashes'].values.tolist()
+#https://stackoverflow.com/questions/11178061/print-list-without-brackets-in-a-single-row
+#entferne brackets 
+REST='\',\''.join(col_list)
+#sql abfrage
+query= "SELECT * FROM Malware WHERE Hashsummen IN ('%s')" %REST
+df6 = pd.read_sql(query, con)
+if df6.empty:
+    print(f"Es wurden keine Übereinstimmungen im Image {bcolors.OKBLUE} ${IMAGE_NAME} {bcolors.ENDC}gefunden")
+else:
+    print(f"{bcolors.FAIL}Es wurden Übereinstimmungen im Image {bcolors.OKBLUE} ${IMAGE_NAME} {bcolors.FAIL}gefunden {bcolors.ENDC}")
+    print(df6)
+EOF
+    chmod +x ${OUT_TMPL}
+    ${OUT_TMPL}
+}
+
+############
+############
+############
+# Cleanup
+cleaner () {
+	rm -rf ${TAR_NAME}
+	rm -rf ${TAR_OUT}
+#    rm -rf output_tmpl.py
+}
+
+
+###############################################################################
+############
+############
+###################################################################################################################################
+############ MAIN
+###################################################################################################################################
+# Übergibt Variablen mit flag, bzw bei unzulässigen flag wird beendet
+while getopts ":hd:t:i:" option; do
+	case $option in
+		h)	#ruft usage auf
+			usage 
+			exit;;
+		d)	#datenbank
+			DB=$OPTARG;;
+		t)	#textfile
+			TEXTFILE=$OPTARG;;
+		i)	#image name
+			IMAGE_NAME=$OPTARG;;
+		\?)	#invalid options
+			echo "Unzulässige Option"
+			exit;;
+	esac
+done
+
+
+# CHECKS IF THERE IS AN ARGUMENT GIVEN 
+if [[ ($# -eq 0) ]]; then
+  missing_image
+elif [[ ($1 == "--help") || ($1 == "-h") ]]; then
+  # No commands or the --help flag passed and we'll show the usage instructions
+  usage
+elif [[ ($1 == "-i") ]]; then
+  IMAGE_NAME=$2
+fi
+
+# Checkt dass nur -d oder -t gesetzt ist wenn beide gesetzt sind dann exit
+if [ ! -z ${DB} ] && [ ! -z ${TEXTFILE} ]; then
+	echo "Nur ein Argument (-d oder -t) kann gesetzt sein"
+	usage
+	exit 1
+elif [ -z ${DB} ] && [ -z ${TEXTFILE} ]; then
+	echo "Mindestens ein Argument (-d oder -t) fehlt"
+	usage
+	exit 1
+fi
+
+
+create_tar
+untar
+create_hashes
+
+# Wenn ${DB} gesetzt ist, dann führe DB-Suche fort (sql)
+if [ -z ${DB} ]; then
+	:	
+else
+	# "hier db -code einfügen"
+	compare_hashes_database ${IMAGE_NAME}
+fi
+
+# Wenn ${TEXTFILE} gesetzt, dann führe Liste-Suche fort
+if [ -z ${TEXTFILE} ]; then
+	:
+else
+	# hier txtfile-code einfügen
+	compare_hashes ${IMAGE_NAME}
+fi
+
+cleaner	

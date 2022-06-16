@@ -16,8 +16,3 @@ platforms:
       arch: amd64
     uri: ./trivy-hash
     bin: ./trivy-hash
-  - selector:
-      os: darwin
-      arch: arm64
-    uri: ./trivy-hash
-    bin: ./trivy-hash
